@@ -3,7 +3,6 @@ import streamlit as st
 import random
 import pandas as pd
 import altair as alt
-import json
 
 class TerminalSimulation:
     def __init__(self, initial_a_volume=50000, initial_b_volume=20000, rounds=10):
@@ -25,6 +24,7 @@ class TerminalSimulation:
         self.congestion_impact_per_round = -300
 
     def set_strategies(self, a_strat, b_strat):
+        """Set strategies for A and B. Options: 'TitForTat - Cooperate', 'TFT - Defect', 'AlwaysCooperate', 'AlwaysDefect', 'Random'."""
         self.a_strategy = a_strat
         self.b_strategy = b_strat
 
@@ -95,10 +95,8 @@ class TerminalSimulation:
 
 st.title("Terminal Competition Simulation (Iterated Prisoner's Dilemma)")
 
-level = st.selectbox("Complexity Level", ['Basic', 'Medium', 'Advanced', 'Master'], help="Start with Basic for core PD, progress for more features.")
-
 st.markdown("""
-This simulation models terminal competition as PD. Adjust level for depth.
+This simulation models terminal competition as PD. Run strategies and compare.
 """)
 
 with st.expander("Strategy Explanations (Click to Expand)"):
@@ -116,14 +114,7 @@ rounds = st.slider("Rounds (Months)", 1, 20, 10, help="Number of simulation roun
 a_strat = st.selectbox("Terminal A Strategy", ['TitForTat - Cooperate', 'TFT - Defect', 'AlwaysCooperate', 'AlwaysDefect', 'Random'], help="Choose Priya's (Terminal A) approach—see expander above for details.")
 b_strat = st.selectbox("Terminal B Strategy", ['TitForTat - Cooperate', 'TFT - Defect', 'AlwaysCooperate', 'AlwaysDefect', 'Random'], help="Choose the rival's (Terminal B) approach—e.g., 'AlwaysDefect' for heavy poaching.")
 
-resolve_cong = st.checkbox("Resolve Export Congestion? (No Penalty)", value=False) if level in ['Medium', 'Advanced', 'Master'] else False
-drop_coast = st.checkbox("Drop Coastal Contract? (No Penalty)", value=False) if level in ['Medium', 'Advanced', 'Master'] else False
-
-scenario = st.selectbox("Load Scenario (Optional)", ['None', 'Regulatory Clampdown', 'Board Intervention (Googly)', 'Aggressive Poaching']) if level in ['Advanced', 'Master'] else 'None'
-
-allow_mid_change = st.checkbox("Allow Mid-Sim Strategy Change? (Interactive Only)", value=False) if level in ['Medium', 'Advanced', 'Master'] else False
-
-mode = st.radio("Simulation Mode", ['Batch (All Rounds at Once)', 'Interactive (Step-by-Step)'] if level != 'Basic' else ['Batch (All Rounds at Once)'], help="Batch: Runs automatically. Interactive: Manually advance rounds for hands-on play.")
+mode = st.radio("Simulation Mode", ['Batch (All Rounds at Once)', 'Interactive (Step-by-Step)'], help="Batch: Runs automatically. Interactive: Manually advance rounds for hands-on play.")
 
 if 'runs' not in st.session_state:
     st.session_state.runs = []
@@ -131,12 +122,11 @@ if 'runs' not in st.session_state:
 tab1, tab2, tab3 = st.tabs(["Simulation", "Reflection Questions", "Comparison"])
 
 with tab1:
-    apply_noise = (scenario == 'Regulatory Clampdown')
     if mode == 'Batch (All Rounds at Once)':
         if st.button("Run Simulation"):
             sim = TerminalSimulation(initial_a_volume=initial_a, initial_b_volume=initial_b, rounds=rounds)
             sim.set_strategies(a_strat, b_strat)
-            history, final_a, final_b = sim.run_simulation(resolve_congestion=resolve_cong, drop_coastal=drop_coast, apply_noise=apply_noise)
+            history, final_a, final_b = sim.run_simulation()
             st.write(f"Final Volumes: Terminal A: {final_a} TEUs, Terminal B: {final_b} TEUs")
             
             # Display history table
@@ -149,7 +139,7 @@ with tab1:
             st.altair_chart(chart, use_container_width=True)
             
             # Store run for comparison
-            st.session_state.runs.append({'Run': len(st.session_state.runs) + 1, 'A Strategy': a_strat, 'B Strategy': b_strat, 'Final A': final_a, 'Final B': final_b})
+            st.session_state.runs.append({'A Strategy': a_strat, 'B Strategy': b_strat, 'Final A': final_a, 'Final B': final_b, 'Total Gain A': final_a - initial_a, 'Total Gain B': final_b - initial_b})
 
     else:
         if 'sim' not in st.session_state:
@@ -160,14 +150,6 @@ with tab1:
             st.session_state.a_last_move = None
             st.session_state.b_last_move = None
 
-        if allow_mid_change:
-            new_a_strat = st.selectbox("Update A Strategy (Mid-Sim)", ['TitForTat - Cooperate', 'TFT - Defect', 'AlwaysCooperate', 'AlwaysDefect', 'Random'], key="mid_a")
-            new_b_strat = st.selectbox("Update B Strategy (Mid-Sim)", ['TitForTat - Cooperate', 'TFT - Defect', 'AlwaysCooperate', 'AlwaysDefect', 'Random'], key="mid_b")
-            if st.button("Apply Mid-Sim Changes"):
-                st.session_state.sim.set_strategies(new_a_strat, new_b_strat)
-                a_strat = new_a_strat
-                b_strat = new_b_strat
-
         if st.button("Advance Next Round"):
             sim = st.session_state.sim
             current_round = st.session_state.current_round
@@ -175,15 +157,13 @@ with tab1:
                 is_first = current_round == 0
                 a_move = sim.get_move(sim.a_strategy, st.session_state.b_last_move, is_first)
                 b_move = sim.get_move(sim.b_strategy, st.session_state.a_last_move, is_first)
-                raw_a_gain, raw_b_gain, net_a_gain, net_b_gain = sim.simulate_round(a_move, b_move, resolve_cong, drop_coast, apply_noise)
+                a_gain, b_gain = sim.simulate_round(a_move, b_move)
                 st.session_state.history.append({
                     'round': current_round + 1,
                     'a_move': a_move,
                     'b_move': b_move,
-                    'raw_a_gain': raw_a_gain,
-                    'raw_b_gain': raw_b_gain,
-                    'net_a_gain': net_a_gain,
-                    'net_b_gain': net_b_gain,
+                    'a_gain': a_gain,
+                    'b_gain': b_gain,
                     'a_volume': sim.a_volume,
                     'b_volume': sim.b_volume
                 })
@@ -203,7 +183,7 @@ with tab1:
                 if st.session_state.current_round == sim.rounds:
                     st.write(f"Final Volumes: Terminal A: {sim.a_volume} TEUs, Terminal B: {sim.b_volume} TEUs")
                     # Store run
-                    st.session_state.runs.append({'Run': len(st.session_state.runs) + 1, 'A Strategy': a_strat, 'B Strategy': b_strat, 'Final A': sim.a_volume, 'Final B': sim.b_volume})
+                    st.session_state.runs.append({'A Strategy': a_strat, 'B Strategy': b_strat, 'Final A': sim.a_volume, 'Final B': sim.b_volume, 'Total Gain A': sim.a_volume - initial_a, 'Total Gain B': sim.b_volume - initial_b})
 
         if st.button("Reset Interactive Mode"):
             del st.session_state.sim
@@ -214,12 +194,8 @@ with tab1:
 
 with tab2:
     st.markdown("### Post-Simulation Questions")
-    q1 = st.text_area("1. Based on results, should Terminal A cooperate with B? Why?", help="Consider risks like collusion or price wars from the case.")
-    q2 = st.text_area("2. If dropping coastal led to gains, quantify short-term loss vs. long-term profitability.", help="Reference case metrics like 2,200 INR/TEU tariff.")
-    if st.button("Save Answers"):
-        st.session_state.answers = {'q1': q1, 'q2': q2}
-        json_str = json.dumps(st.session_state.answers)
-        st.download_button("Download Answers", json_str, "answers.json")
+    st.text_area("1. Based on results, should Terminal A cooperate with B? Why?", help="Consider risks like collusion or price wars from the case.")
+    st.text_area("2. If dropping coastal led to gains, quantify short-term loss vs. long-term profitability.", help="Reference case metrics like 2,200 INR/TEU tariff.")
 
 with tab3:
     if st.session_state.runs:
@@ -227,14 +203,15 @@ with tab3:
         st.dataframe(comp_df)
         
         # Bar graph for comparison - side-by-side A/B per run
-        comp_df['Run Label'] = 'Run ' + comp_df['Run'].astype(str) + ': ' + comp_df['A Strategy'] + ' vs ' + comp_df['B Strategy']
+        comp_df['Run Label'] = comp_df['A Strategy'] + ' vs ' + comp_df['B Strategy']
         chart_data = comp_df.melt(id_vars=['Run Label'], value_vars=['Final A', 'Final B'], var_name='Terminal', value_name='Volume')
         chart = alt.Chart(chart_data).mark_bar().encode(
-            x=alt.X('Run Label:N', axis=alt.Axis(labelAngle=-45)),
+            x='Run Label:N',
             y='Volume:Q',
             color='Terminal:N',
+            column='Run Label:N',  # Group by run
             tooltip=['Run Label', 'Terminal', 'Volume']
-        ).properties(width=600)
+        ).properties(width=200)
         st.altair_chart(chart, use_container_width=True)
         
         csv = comp_df.to_csv()
