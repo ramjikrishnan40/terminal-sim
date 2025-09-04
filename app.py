@@ -102,21 +102,95 @@ initial_b = st.number_input("Initial B Volume (TEUs)", value=20000, help="Starti
 rounds = st.slider("Rounds (Months)", 1, 20, 10, help="Number of simulation rounds (months); longer runs show long-term effects of strategies like price wars.")
 a_strat = st.selectbox("Terminal A Strategy", ['TitForTat', 'AlwaysCooperate', 'AlwaysDefect', 'Random'], help="Choose Priya's (Terminal A) approach—see expander above for details.")
 b_strat = st.selectbox("Terminal B Strategy", ['TitForTat', 'AlwaysCooperate', 'AlwaysDefect', 'Random'], help="Choose the rival's (Terminal B) approach—e.g., 'AlwaysDefect' for heavy poaching.")
-resolve_cong = st.checkbox("Resolve Export Congestion? (No Penalty)", value=False, help="If checked, Terminal A avoids the -3,000 TEU penalty (scaled by rounds); simulates implementing TAS/VDTW to fix bottlenecks.")
-drop_coast = st.checkbox("Drop Coastal Contract? (No Penalty)", value=False, help="If checked, Terminal A avoids the -2,000 TEU penalty (scaled by rounds); simulates shedding the unprofitable legacy contract.")
+resolve_cong = st.checkbox("Resolve Export Congestion? (No Penalty)", value=False, help="Check to simulate Terminal A resolving export bottlenecks (e.g., via advanced TAS/VDTW system for peak 3 PM–2 AM truck flows). Avoids the -3,000 TEU scaled penalty; reflects urgent operational efficiency gains to alleviate congestion and improve TTT.")
+drop_coast = st.checkbox("Drop Coastal Contract? (No Penalty)", value=False, help="Check to simulate Terminal A shedding the legacy coastal contract (reduced tariff of 2,200 INR/TEU, 10-12 days free storage, unproductive moves at 15-20% of eRTG capacity). Avoids the -2,000 TEU scaled penalty; weighs short-term volume loss vs. long-term profitability and yard relief.")
 
-if st.button("Run Simulation"):
-    sim = TerminalSimulation(initial_a_volume=initial_a, initial_b_volume=initial_b, rounds=rounds)
-    sim.set_strategies(a_strat, b_strat)
-    history, final_a, final_b = sim.run_simulation(resolve_congestion=resolve_cong, drop_coastal=drop_coast)
-    
-    st.write(f"Final Volumes: Terminal A: {final_a} TEUs, Terminal B: {final_b} TEUs")
-    
-    # Display history table
-    df = pd.DataFrame(history)
-    st.dataframe(df)
-    
-    # Chart volumes over rounds
-    chart_data = df.melt(id_vars=['round'], value_vars=['a_volume', 'b_volume'], var_name='Terminal', value_name='Volume')
-    chart = alt.Chart(chart_data).mark_line().encode(x='round', y='Volume', color='Terminal').interactive()
-    st.altair_chart(chart, use_container_width=True)
+scenario = st.selectbox("Load Scenario (Optional)", ['None', 'Regulatory Clampdown', 'Board Intervention (Googly)', 'Aggressive Poaching'], help="Pre-set parameters based on case 'What Ifs' for quick testing.")
+
+if scenario != 'None':
+    if scenario == 'Regulatory Clampdown':
+        st.info("Scenario: Stricter regulations add random penalties (-1000 to +1000 TEUs per round for uncertainty).")
+        # Note: To fully implement, add noise to payoffs in simulate_round (e.g., a_gain += random.randint(-1000, 1000))
+    elif scenario == 'Board Intervention (Googly)':
+        a_strat = 'AlwaysCooperate'  # Force retain volume
+        st.info("Scenario: Board forces A to cooperate/retain volume, risking exploitation.")
+    elif scenario == 'Aggressive Poaching':
+        b_strat = 'AlwaysDefect'
+        st.info("Scenario: B always defects (poaches heavily), testing A's retaliation.")
+
+mode = st.radio("Simulation Mode", ['Batch (All Rounds at Once)', 'Interactive (Step-by-Step)'], help="Batch: Runs automatically. Interactive: Manually advance rounds for hands-on play.")
+
+if mode == 'Batch':
+    if st.button("Run Simulation"):
+        sim = TerminalSimulation(initial_a_volume=initial_a, initial_b_volume=initial_b, rounds=rounds)
+        sim.set_strategies(a_strat, b_strat)
+        history, final_a, final_b = sim.run_simulation(resolve_congestion=resolve_cong, drop_coastal=drop_coast)
+        
+        st.write(f"Final Volumes: Terminal A: {final_a} TEUs, Terminal B: {final_b} TEUs")
+        
+        # Display history table
+        df = pd.DataFrame(history)
+        st.dataframe(df)
+        
+        # Chart volumes over rounds
+        chart_data = df.melt(id_vars=['round'], value_vars=['a_volume', 'b_volume'], var_name='Terminal', value_name='Volume')
+        chart = alt.Chart(chart_data).mark_line().encode(x='round', y='Volume', color='Terminal').interactive()
+        st.altair_chart(chart, use_container_width=True)
+else:
+    if 'sim' not in st.session_state:
+        st.session_state.sim = TerminalSimulation(initial_a_volume=initial_a, initial_b_volume=initial_b, rounds=rounds)
+        st.session_state.sim.set_strategies(a_strat, b_strat)
+        st.session_state.current_round = 0
+        st.session_state.history = []
+
+    if st.button("Advance Next Round"):
+        sim = st.session_state.sim
+        current_round = st.session_state.current_round
+        if current_round < sim.rounds:
+            is_first = current_round == 0
+            a_move = sim.get_move(sim.a_strategy, st.session_state.get('b_last_move'), is_first)
+            b_move = sim.get_move(sim.b_strategy, st.session_state.get('a_last_move'), is_first)
+            a_gain, b_gain = sim.simulate_round(a_move, b_move)
+            st.session_state.history.append({
+                'round': current_round + 1,
+                'a_move': a_move,
+                'b_move': b_move,
+                'a_gain': a_gain,
+                'b_gain': b_gain,
+                'a_volume': sim.a_volume,
+                'b_volume': sim.b_volume
+            })
+            st.session_state.a_last_move = a_move
+            st.session_state.b_last_move = b_move
+            st.session_state.current_round += 1
+
+            # Display current history
+            df = pd.DataFrame(st.session_state.history)
+            st.dataframe(df)
+
+            # Apply penalties if last round
+            if st.session_state.current_round == sim.rounds:
+                penalty_factor = sim.rounds / 10
+                if not resolve_cong:
+                    sim.a_volume += sim.congestion_impact * penalty_factor
+                if not drop_coast:
+                    sim.a_volume += sim.coastal_impact * penalty_factor
+                st.write(f"Final Volumes (with penalties): Terminal A: {sim.a_volume} TEUs, Terminal B: {sim.b_volume} TEUs")
+
+    if st.button("Reset Interactive Mode"):
+        del st.session_state.sim
+        del st.session_state.current_round
+        del st.session_state.history
+        st.session_state.a_last_move = None
+        st.session_state.b_last_move = None
+
+tab1, tab2 = st.tabs(["Simulation", "Reflection Questions"])
+
+with tab1:
+    # The mode and button code is already above, so this tab contains the sim UI
+
+with tab2:
+    st.markdown("### Post-Simulation Questions")
+    st.text_area("1. Based on results, should Terminal A cooperate with B? Why?", help="Consider risks like collusion or price wars from the case.")
+    st.text_area("2. If dropping coastal led to gains, quantify short-term loss vs. long-term profitability.", help="Reference case metrics like 2,200 INR/TEU tariff.")
+    # Add more questions as needed
