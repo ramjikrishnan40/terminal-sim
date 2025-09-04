@@ -20,8 +20,6 @@ class TerminalSimulation:
             ('Defect', 'Cooperate'): (10000, -5000),
             ('Defect', 'Defect'): (-2000, -2000)
         }
-        self.coastal_impact_per_round = -200
-        self.congestion_impact_per_round = -300
 
     def set_strategies(self, a_strat, b_strat):
         """Set strategies for A and B. Options: 'TitForTat', 'AlwaysCooperate', 'AlwaysDefect', 'Random'."""
@@ -42,26 +40,15 @@ class TerminalSimulation:
         else:
             raise ValueError("Unknown strategy")
 
-    def simulate_round(self, a_move, b_move, apply_noise=False, resolve_congestion=False, drop_coastal=False):
-        raw_a_gain, raw_b_gain = self.payoffs.get((a_move, b_move), (0, 0))
-        a_adjust = 0
-        b_adjust = 0
-        if apply_noise:
-            a_adjust += random.randint(-500, 500)
-            b_adjust += random.randint(-500, 500)
-        if not resolve_congestion:
-            a_adjust += self.congestion_impact_per_round
-        if not drop_coastal:
-            a_adjust += self.coastal_impact_per_round
-        net_a_gain = raw_a_gain + a_adjust
-        net_b_gain = raw_b_gain + b_adjust
-        self.a_volume += net_a_gain
-        self.b_volume += net_b_gain
+    def simulate_round(self, a_move, b_move):
+        a_gain, b_gain = self.payoffs.get((a_move, b_move), (0, 0))
+        self.a_volume += a_gain
+        self.b_volume += b_gain
         self.a_volume = min(max(self.a_volume, 0), self.a_max_capacity)
         self.b_volume = min(max(self.b_volume, 0), self.b_max_capacity)
-        return raw_a_gain, raw_b_gain, net_a_gain, net_b_gain
+        return a_gain, b_gain
 
-    def run_simulation(self, resolve_congestion=False, drop_coastal=False, apply_noise=False):
+    def run_simulation(self):
         a_last_move = None
         b_last_move = None
         self.history = []
@@ -69,15 +56,13 @@ class TerminalSimulation:
             is_first = r == 0
             a_move = self.get_move(self.a_strategy, b_last_move, is_first)
             b_move = self.get_move(self.b_strategy, a_last_move, is_first)
-            raw_a_gain, raw_b_gain, net_a_gain, net_b_gain = self.simulate_round(a_move, b_move, apply_noise, resolve_congestion, drop_coastal)
+            a_gain, b_gain = self.simulate_round(a_move, b_move)
             self.history.append({
                 'round': r + 1,
                 'a_move': a_move,
                 'b_move': b_move,
-                'raw_a_gain': raw_a_gain,
-                'raw_b_gain': raw_b_gain,
-                'net_a_gain': net_a_gain,
-                'net_b_gain': net_b_gain,
+                'a_gain': a_gain,
+                'b_gain': b_gain,
                 'a_volume': self.a_volume,
                 'b_volume': self.b_volume
             })
@@ -87,8 +72,10 @@ class TerminalSimulation:
 
 st.title("Terminal Competition Simulation (Iterated Prisoner's Dilemma)")
 
+level = st.selectbox("Complexity Level", ['Basic'], help="Basic level: Core PD simulation.")
+
 st.markdown("""
-This simulation models the competition between Terminal A (established, starting at 50,000 TEUs/month) and Terminal B (new entrant, starting at 20,000 TEUs/month) as an iterated Prisoner's Dilemma. Each 'round' represents a month where terminals choose to Cooperate (e.g., avoid poaching, share synergies) or Defect (e.g., poach customers aggressively). Payoffs reflect volume changes based on choices. Penalties apply for unresolved issues from the case study.
+This simulation models terminal competition as PD. Use Basic for starters.
 """)
 
 with st.expander("Strategy Explanations (Click to Expand)"):
@@ -99,39 +86,22 @@ with st.expander("Strategy Explanations (Click to Expand)"):
     - **Random**: Chooses cooperate or defect randomly each round. Introduces uncertainty, simulating unpredictable market behaviors.
     """)
 
-# UI Inputs with tooltips
 initial_a = st.number_input("Initial A Volume (TEUs)", value=50000, help="Starting monthly throughput for Terminal A (e.g., 50,000 TEUs as per case; adjust to test scenarios).")
 initial_b = st.number_input("Initial B Volume (TEUs)", value=20000, help="Starting monthly throughput for Terminal B (e.g., 20,000 TEUs; reflects new entrant's ramp-up).")
 rounds = st.slider("Rounds (Months)", 1, 20, 10, help="Number of simulation rounds (months); longer runs show long-term effects of strategies like price wars.")
 a_strat = st.selectbox("Terminal A Strategy", ['TitForTat', 'AlwaysCooperate', 'AlwaysDefect', 'Random'], help="Choose Priya's (Terminal A) approach—see expander above for details.")
 b_strat = st.selectbox("Terminal B Strategy", ['TitForTat', 'AlwaysCooperate', 'AlwaysDefect', 'Random'], help="Choose the rival's (Terminal B) approach—e.g., 'AlwaysDefect' for heavy poaching.")
-resolve_cong = st.checkbox("Resolve Export Congestion? (No Penalty)", value=False, help="Check to simulate Terminal A resolving export bottlenecks (e.g., via advanced TAS/VDTW system for peak 3 PM–2 AM truck flows). Avoids the -3,000 TEU scaled penalty; reflects urgent operational efficiency gains to alleviate congestion and improve TTT.")
-drop_coast = st.checkbox("Drop Coastal Contract? (No Penalty)", value=False, help="Check to simulate Terminal A shedding the legacy coastal contract (reduced tariff of 2,200 INR/TEU, 10-12 days free storage, unproductive moves at 15-20% of eRTG capacity). Avoids the -2,000 TEU scaled penalty; weighs short-term volume loss vs. long-term profitability and yard relief.")
 
-scenario = st.selectbox("Load Scenario (Optional)", ['None', 'Regulatory Clampdown', 'Board Intervention (Googly)', 'Aggressive Poaching'], help="Pre-set parameters based on case 'What Ifs' for quick testing.")
-
-if scenario != 'None':
-    if scenario == 'Regulatory Clampdown':
-        st.info("Scenario: Stricter regulations add random penalties (-500 to +500 TEUs per round for uncertainty).")
-    elif scenario == 'Board Intervention (Googly)':
-        a_strat = 'AlwaysCooperate'  # Force retain volume
-        st.info("Scenario: Board forces A to cooperate/retain volume, risking exploitation.")
-    elif scenario == 'Aggressive Poaching':
-        b_strat = 'AlwaysDefect'
-        st.info("Scenario: B always defects (poaches heavily), testing A's retaliation.")
-
-mode = st.radio("Simulation Mode", ['Batch (All Rounds at Once)', 'Interactive (Step-by-Step)'], help="Batch: Runs automatically. Interactive: Manually advance rounds for hands-on play.")
+mode = st.radio("Simulation Mode", ['Batch (All Rounds at Once)'], help="Batch: Runs automatically.")
 
 tab1, tab2 = st.tabs(["Simulation", "Reflection Questions"])
 
 with tab1:
-    if mode == 'Batch':
+    if mode == 'Batch (All Rounds at Once)':
         if st.button("Run Simulation"):
             sim = TerminalSimulation(initial_a_volume=initial_a, initial_b_volume=initial_b, rounds=rounds)
             sim.set_strategies(a_strat, b_strat)
-            apply_noise = (scenario == 'Regulatory Clampdown')
-            history, final_a, final_b = sim.run_simulation(resolve_congestion=resolve_cong, drop_coastal=drop_coast, apply_noise=apply_noise)
-            
+            history, final_a, final_b = sim.run_simulation()
             st.write(f"Final Volumes: Terminal A: {final_a} TEUs, Terminal B: {final_b} TEUs")
             
             # Display history table
@@ -142,58 +112,8 @@ with tab1:
             chart_data = df.melt(id_vars=['round'], value_vars=['a_volume', 'b_volume'], var_name='Terminal', value_name='Volume')
             chart = alt.Chart(chart_data).mark_line().encode(x='round', y='Volume', color='Terminal').interactive()
             st.altair_chart(chart, use_container_width=True)
-    else:
-        if 'sim' not in st.session_state:
-            st.session_state.sim = TerminalSimulation(initial_a_volume=initial_a, initial_b_volume=initial_b, rounds=rounds)
-            st.session_state.sim.set_strategies(a_strat, b_strat)
-            st.session_state.current_round = 0
-            st.session_state.history = []
-            st.session_state.a_last_move = None
-            st.session_state.b_last_move = None
-
-        apply_noise = (scenario == 'Regulatory Clampdown')
-
-        if st.button("Advance Next Round"):
-            sim = st.session_state.sim
-            current_round = st.session_state.current_round
-            if current_round < sim.rounds:
-                is_first = current_round == 0
-                a_move = sim.get_move(sim.a_strategy, st.session_state.b_last_move, is_first)
-                b_move = sim.get_move(sim.b_strategy, st.session_state.a_last_move, is_first)
-                raw_a_gain, raw_b_gain, net_a_gain, net_b_gain = sim.simulate_round(a_move, b_move, apply_noise, resolve_cong, drop_coast)
-                st.session_state.history.append({
-                    'round': current_round + 1,
-                    'a_move': a_move,
-                    'b_move': b_move,
-                    'raw_a_gain': raw_a_gain,
-                    'raw_b_gain': raw_b_gain,
-                    'net_a_gain': net_a_gain,
-                    'net_b_gain': net_b_gain,
-                    'a_volume': sim.a_volume,
-                    'b_volume': sim.b_volume
-                })
-                st.session_state.a_last_move = a_move
-                st.session_state.b_last_move = b_move
-                st.session_state.current_round += 1
-
-                # Display current history
-                df = pd.DataFrame(st.session_state.history)
-                st.dataframe(df)
-
-                # Chart in interactive mode
-                chart_data = df.melt(id_vars=['round'], value_vars=['a_volume', 'b_volume'], var_name='Terminal', value_name='Volume')
-                chart = alt.Chart(chart_data).mark_line().encode(x='round', y='Volume', color='Terminal').interactive()
-                st.altair_chart(chart, use_container_width=True)
-
-        if st.button("Reset Interactive Mode"):
-            del st.session_state.sim
-            del st.session_state.current_round
-            del st.session_state.history
-            st.session_state.a_last_move = None
-            st.session_state.b_last_move = None
 
 with tab2:
-    st.markdown("### Post-Simulation Questions")
+    st.markdown("### Post-Simulation Questions (Basic Level)")
     st.text_area("1. Based on results, should Terminal A cooperate with B? Why?", help="Consider risks like collusion or price wars from the case.")
-    st.text_area("2. If dropping coastal led to gains, quantify short-term loss vs. long-term profitability.", help="Reference case metrics like 2,200 INR/TEU tariff.")
-    # Add more questions as needed
+    st.text_area("2. How do different strategies affect volume changes?", help="Reference the gains from cooperation vs. defection.")
