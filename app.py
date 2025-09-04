@@ -120,74 +120,74 @@ if scenario != 'None':
 
 mode = st.radio("Simulation Mode", ['Batch (All Rounds at Once)', 'Interactive (Step-by-Step)'], help="Batch: Runs automatically. Interactive: Manually advance rounds for hands-on play.")
 
-if mode == 'Batch':
-    if st.button("Run Simulation"):
-        sim = TerminalSimulation(initial_a_volume=initial_a, initial_b_volume=initial_b, rounds=rounds)
-        sim.set_strategies(a_strat, b_strat)
-        history, final_a, final_b = sim.run_simulation(resolve_congestion=resolve_cong, drop_coastal=drop_coast)
-        
-        st.write(f"Final Volumes: Terminal A: {final_a} TEUs, Terminal B: {final_b} TEUs")
-        
-        # Display history table
-        df = pd.DataFrame(history)
-        st.dataframe(df)
-        
-        # Chart volumes over rounds
-        chart_data = df.melt(id_vars=['round'], value_vars=['a_volume', 'b_volume'], var_name='Terminal', value_name='Volume')
-        chart = alt.Chart(chart_data).mark_line().encode(x='round', y='Volume', color='Terminal').interactive()
-        st.altair_chart(chart, use_container_width=True)
-else:
-    if 'sim' not in st.session_state:
-        st.session_state.sim = TerminalSimulation(initial_a_volume=initial_a, initial_b_volume=initial_b, rounds=rounds)
-        st.session_state.sim.set_strategies(a_strat, b_strat)
-        st.session_state.current_round = 0
-        st.session_state.history = []
-
-    if st.button("Advance Next Round"):
-        sim = st.session_state.sim
-        current_round = st.session_state.current_round
-        if current_round < sim.rounds:
-            is_first = current_round == 0
-            a_move = sim.get_move(sim.a_strategy, st.session_state.get('b_last_move'), is_first)
-            b_move = sim.get_move(sim.b_strategy, st.session_state.get('a_last_move'), is_first)
-            a_gain, b_gain = sim.simulate_round(a_move, b_move)
-            st.session_state.history.append({
-                'round': current_round + 1,
-                'a_move': a_move,
-                'b_move': b_move,
-                'a_gain': a_gain,
-                'b_gain': b_gain,
-                'a_volume': sim.a_volume,
-                'b_volume': sim.b_volume
-            })
-            st.session_state.a_last_move = a_move
-            st.session_state.b_last_move = b_move
-            st.session_state.current_round += 1
-
-            # Display current history
-            df = pd.DataFrame(st.session_state.history)
-            st.dataframe(df)
-
-            # Apply penalties if last round
-            if st.session_state.current_round == sim.rounds:
-                penalty_factor = sim.rounds / 10
-                if not resolve_cong:
-                    sim.a_volume += sim.congestion_impact * penalty_factor
-                if not drop_coast:
-                    sim.a_volume += sim.coastal_impact * penalty_factor
-                st.write(f"Final Volumes (with penalties): Terminal A: {sim.a_volume} TEUs, Terminal B: {sim.b_volume} TEUs")
-
-    if st.button("Reset Interactive Mode"):
-        del st.session_state.sim
-        del st.session_state.current_round
-        del st.session_state.history
-        st.session_state.a_last_move = None
-        st.session_state.b_last_move = None
-
 tab1, tab2 = st.tabs(["Simulation", "Reflection Questions"])
 
 with tab1:
-    # The mode and button code is already above, so this tab contains the sim UI
+    if mode == 'Batch':
+        if st.button("Run Simulation"):
+            sim = TerminalSimulation(initial_a_volume=initial_a, initial_b_volume=initial_b, rounds=rounds)
+            sim.set_strategies(a_strat, b_strat)
+            history, final_a, final_b = sim.run_simulation(resolve_congestion=resolve_cong, drop_coastal=drop_coast)
+            
+            st.write(f"Final Volumes: Terminal A: {final_a} TEUs, Terminal B: {final_b} TEUs")
+            
+            # Display history table
+            df = pd.DataFrame(history)
+            st.dataframe(df)
+            
+            # Chart volumes over rounds
+            chart_data = df.melt(id_vars=['round'], value_vars=['a_volume', 'b_volume'], var_name='Terminal', value_name='Volume')
+            chart = alt.Chart(chart_data).mark_line().encode(x='round', y='Volume', color='Terminal').interactive()
+            st.altair_chart(chart, use_container_width=True)
+    else:
+        if 'sim' not in st.session_state:
+            st.session_state.sim = TerminalSimulation(initial_a_volume=initial_a, initial_b_volume=initial_b, rounds=rounds)
+            st.session_state.sim.set_strategies(a_strat, b_strat)
+            st.session_state.current_round = 0
+            st.session_state.history = []
+            st.session_state.a_last_move = None
+            st.session_state.b_last_move = None
+
+        if st.button("Advance Next Round"):
+            sim = st.session_state.sim
+            current_round = st.session_state.current_round
+            if current_round < sim.rounds:
+                is_first = current_round == 0
+                a_move = sim.get_move(sim.a_strategy, st.session_state.b_last_move, is_first)
+                b_move = sim.get_move(sim.b_strategy, st.session_state.a_last_move, is_first)
+                a_gain, b_gain = sim.simulate_round(a_move, b_move)
+                st.session_state.history.append({
+                    'round': current_round + 1,
+                    'a_move': a_move,
+                    'b_move': b_move,
+                    'a_gain': a_gain,
+                    'b_gain': b_gain,
+                    'a_volume': sim.a_volume,
+                    'b_volume': sim.b_volume
+                })
+                st.session_state.a_last_move = a_move
+                st.session_state.b_last_move = b_move
+                st.session_state.current_round += 1
+
+                # Display current history
+                df = pd.DataFrame(st.session_state.history)
+                st.dataframe(df)
+
+                # Apply penalties if last round
+                if st.session_state.current_round == sim.rounds:
+                    penalty_factor = sim.rounds / 10
+                    if not resolve_cong:
+                        sim.a_volume += sim.congestion_impact * penalty_factor
+                    if not drop_coast:
+                        sim.a_volume += sim.coastal_impact * penalty_factor
+                    st.write(f"Final Volumes (with penalties): Terminal A: {sim.a_volume} TEUs, Terminal B: {sim.b_volume} TEUs")
+
+        if st.button("Reset Interactive Mode"):
+            del st.session_state.sim
+            del st.session_state.current_round
+            del st.session_state.history
+            st.session_state.a_last_move = None
+            st.session_state.b_last_move = None
 
 with tab2:
     st.markdown("### Post-Simulation Questions")
