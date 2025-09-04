@@ -42,9 +42,13 @@ class TerminalSimulation:
 
     def simulate_round(self, a_move, b_move):
         a_gain, b_gain = self.payoffs.get((a_move, b_move), (0, 0))
+        old_a = self.a_volume
         self.a_volume += a_gain
-        self.b_volume += b_gain
+        excess_a = max(0, self.a_volume - self.a_max_capacity)
+        if excess_a > 0 and a_move == 'Cooperate' and b_move == 'Cooperate':
+            self.b_volume += excess_a * 0.5  # Spillover to B
         self.a_volume = min(max(self.a_volume, 0), self.a_max_capacity)
+        self.b_volume += b_gain
         self.b_volume = min(max(self.b_volume, 0), self.b_max_capacity)
         return a_gain, b_gain
 
@@ -97,21 +101,20 @@ mode = st.radio("Simulation Mode", ['Batch (All Rounds at Once)'], help="Batch: 
 tab1, tab2 = st.tabs(["Simulation", "Reflection Questions"])
 
 with tab1:
-    if mode == 'Batch (All Rounds at Once)':
-        if st.button("Run Simulation"):
-            sim = TerminalSimulation(initial_a_volume=initial_a, initial_b_volume=initial_b, rounds=rounds)
-            sim.set_strategies(a_strat, b_strat)
-            history, final_a, final_b = sim.run_simulation()
-            st.write(f"Final Volumes: Terminal A: {final_a} TEUs, Terminal B: {final_b} TEUs")
-            
-            # Display history table
-            df = pd.DataFrame(history)
-            st.dataframe(df)
-            
-            # Chart volumes over rounds
-            chart_data = df.melt(id_vars=['round'], value_vars=['a_volume', 'b_volume'], var_name='Terminal', value_name='Volume')
-            chart = alt.Chart(chart_data).mark_line().encode(x='round', y='Volume', color='Terminal').interactive()
-            st.altair_chart(chart, use_container_width=True)
+    if st.button("Run Simulation"):
+        sim = TerminalSimulation(initial_a_volume=initial_a, initial_b_volume=initial_b, rounds=rounds)
+        sim.set_strategies(a_strat, b_strat)
+        history, final_a, final_b = sim.run_simulation()
+        st.write(f"Final Volumes: Terminal A: {final_a} TEUs, Terminal B: {final_b} TEUs")
+        
+        # Display history table
+        df = pd.DataFrame(history)
+        st.dataframe(df)
+        
+        # Chart volumes over rounds
+        chart_data = df.melt(id_vars=['round'], value_vars=['a_volume', 'b_volume'], var_name='Terminal', value_name='Volume')
+        chart = alt.Chart(chart_data).mark_line().encode(x='round', y='Volume', color='Terminal').interactive()
+        st.altair_chart(chart, use_container_width=True)
 
 with tab2:
     st.markdown("### Post-Simulation Questions (Basic Level)")
