@@ -9,8 +9,8 @@ class TerminalSimulation:
         self.a_volume = initial_a_volume
         self.b_volume = initial_b_volume
         self.rounds = rounds
-        self.a_strategy = 'TitForTat'
-        self.b_strategy = 'TitForTat'
+        self.a_strategy = 'TitForTat - Cooperate'
+        self.b_strategy = 'TitForTat - Cooperate'
         self.history = []
         self.a_max_capacity = 60000
         self.b_max_capacity = 75000
@@ -22,7 +22,6 @@ class TerminalSimulation:
         }
 
     def set_strategies(self, a_strat, b_strat):
-        """Set strategies for A and B. Options: 'TitForTat', 'AlwaysCooperate', 'AlwaysDefect', 'Random'."""
         self.a_strategy = a_strat
         self.b_strategy = b_strat
 
@@ -31,9 +30,13 @@ class TerminalSimulation:
             return 'Cooperate'
         elif strategy == 'AlwaysDefect':
             return 'Defect'
-        elif strategy == 'TitForTat':
+        elif strategy == 'TitForTat - Cooperate':
             if is_first:
                 return 'Cooperate'
+            return opponent_last_move
+        elif strategy == 'TFT - Defect':
+            if is_first:
+                return 'Defect'
             return opponent_last_move
         elif strategy == 'Random':
             return random.choice(['Cooperate', 'Defect'])
@@ -45,9 +48,9 @@ class TerminalSimulation:
         old_a = self.a_volume
         self.a_volume += a_gain
         excess_a = max(0, self.a_volume - self.a_max_capacity)
+        self.a_volume = min(max(self.a_volume, 0), self.a_max_capacity)
         if excess_a > 0 and a_move == 'Cooperate' and b_move == 'Cooperate':
             self.b_volume += excess_a * 0.5  # Spillover to B
-        self.a_volume = min(max(self.a_volume, 0), self.a_max_capacity)
         self.b_volume += b_gain
         self.b_volume = min(max(self.b_volume, 0), self.b_max_capacity)
         return a_gain, b_gain
@@ -76,47 +79,126 @@ class TerminalSimulation:
 
 st.title("Terminal Competition Simulation (Iterated Prisoner's Dilemma)")
 
-level = st.selectbox("Complexity Level", ['Basic'], help="Basic level: Core PD simulation.")
-
 st.markdown("""
-This simulation models terminal competition as PD. Use Basic for starters.
+This simulation models terminal competition as PD. Run strategies and compare.
 """)
 
 with st.expander("Strategy Explanations (Click to Expand)"):
     st.markdown("""
-    - **TitForTat**: Starts by cooperating but mirrors the opponent's last move. Encourages mutual cooperation but retaliates against defection. (Case tie-in: Balanced approach for exploring limited synergies without being exploited.)
-    - **AlwaysCooperate**: Always chooses to cooperate, regardless of the opponent. Risks exploitation but can stabilize if the other follows suit. (Case tie-in: Like board intervention forcing volume retention, potentially leading to mutual benefits or heavy losses.)
-    - **AlwaysDefect**: Always chooses to defect, aiming for short-term gains via poaching. Often leads to mutual destruction in iterated games. (Case tie-in: Models Terminal B's aggressive poaching strategy.)
-    - **Random**: Chooses cooperate or defect randomly each round. Introduces uncertainty, simulating unpredictable market behaviors.
+    - **TitForTat - Cooperate**: Starts with cooperate, then mirrors opponent's last move.
+    - **TFT - Defect**: Starts with defect, then mirrors opponent's last move.
+    - **AlwaysCooperate**: Always cooperates.
+    - **AlwaysDefect**: Always defects.
+    - **Random**: Random choice each round.
     """)
 
-initial_a = st.number_input("Initial A Volume (TEUs)", value=50000, help="Starting monthly throughput for Terminal A (e.g., 50,000 TEUs as per case; adjust to test scenarios).")
-initial_b = st.number_input("Initial B Volume (TEUs)", value=20000, help="Starting monthly throughput for Terminal B (e.g., 20,000 TEUs; reflects new entrant's ramp-up).")
-rounds = st.slider("Rounds (Months)", 1, 20, 10, help="Number of simulation rounds (months); longer runs show long-term effects of strategies like price wars.")
-a_strat = st.selectbox("Terminal A Strategy", ['TitForTat', 'AlwaysCooperate', 'AlwaysDefect', 'Random'], help="Choose Priya's (Terminal A) approach—see expander above for details.")
-b_strat = st.selectbox("Terminal B Strategy", ['TitForTat', 'AlwaysCooperate', 'AlwaysDefect', 'Random'], help="Choose the rival's (Terminal B) approach—e.g., 'AlwaysDefect' for heavy poaching.")
+initial_a = st.number_input("Initial A Volume (TEUs)", value=50000, help="Starting monthly throughput for Terminal A.")
+initial_b = st.number_input("Initial B Volume (TEUs)", value=20000, help="Starting monthly throughput for Terminal B.")
+rounds = st.slider("Rounds (Months)", 1, 20, 10, help="Number of simulation rounds.")
+a_strat = st.selectbox("Terminal A Strategy", ['TitForTat - Cooperate', 'TFT - Defect', 'AlwaysCooperate', 'AlwaysDefect', 'Random'])
+b_strat = st.selectbox("Terminal B Strategy", ['TitForTat - Cooperate', 'TFT - Defect', 'AlwaysCooperate', 'AlwaysDefect', 'Random'])
 
-mode = st.radio("Simulation Mode", ['Batch (All Rounds at Once)'], help="Batch: Runs automatically.")
+mode = st.radio("Simulation Mode", ['Batch (All Rounds at Once)', 'Interactive (Step-by-Step)'], help="Batch: Runs automatically. Interactive: Manual advance.")
 
-tab1, tab2 = st.tabs(["Simulation", "Reflection Questions"])
+if 'runs' not in st.session_state:
+    st.session_state.runs = []
+
+tab1, tab2, tab3 = st.tabs(["Simulation", "Reflection Questions", "Comparison"])
 
 with tab1:
-    if st.button("Run Simulation"):
-        sim = TerminalSimulation(initial_a_volume=initial_a, initial_b_volume=initial_b, rounds=rounds)
-        sim.set_strategies(a_strat, b_strat)
-        history, final_a, final_b = sim.run_simulation()
-        st.write(f"Final Volumes: Terminal A: {final_a} TEUs, Terminal B: {final_b} TEUs")
-        
-        # Display history table
-        df = pd.DataFrame(history)
-        st.dataframe(df)
-        
-        # Chart volumes over rounds
-        chart_data = df.melt(id_vars=['round'], value_vars=['a_volume', 'b_volume'], var_name='Terminal', value_name='Volume')
-        chart = alt.Chart(chart_data).mark_line().encode(x='round', y='Volume', color='Terminal').interactive()
-        st.altair_chart(chart, use_container_width=True)
+    if mode == 'Batch (All Rounds at Once)':
+        if st.button("Run Simulation"):
+            sim = TerminalSimulation(initial_a_volume=initial_a, initial_b_volume=initial_b, rounds=rounds)
+            sim.set_strategies(a_strat, b_strat)
+            history, final_a, final_b = sim.run_simulation()
+            st.write(f"Final Volumes: Terminal A: {final_a} TEUs, Terminal B: {final_b} TEUs")
+            
+            # Display history table
+            df = pd.DataFrame(history)
+            st.dataframe(df)
+            
+            # Chart volumes over rounds
+            chart_data = df.melt(id_vars=['round'], value_vars=['a_volume', 'b_volume'], var_name='Terminal', value_name='Volume')
+            chart = alt.Chart(chart_data).mark_line().encode(x='round', y='Volume', color='Terminal').interactive()
+            st.altair_chart(chart, use_container_width=True)
+            
+            # Store run for comparison
+            st.session_state.runs.append({'A Strategy': a_strat, 'B Strategy': b_strat, 'Final A': final_a, 'Final B': final_b, 'Total Gain': final_a + final_b - initial_a - initial_b})
+
+    else:
+        if 'sim' not in st.session_state:
+            st.session_state.sim = TerminalSimulation(initial_a_volume=initial_a, initial_b_volume=initial_b, rounds=rounds)
+            st.session_state.sim.set_strategies(a_strat, b_strat)
+            st.session_state.current_round = 0
+            st.session_state.history = []
+            st.session_state.a_last_move = None
+            st.session_state.b_last_move = None
+
+        if st.button("Advance Next Round"):
+            sim = st.session_state.sim
+            current_round = st.session_state.current_round
+            if current_round < sim.rounds:
+                is_first = current_round == 0
+                a_move = sim.get_move(sim.a_strategy, st.session_state.b_last_move, is_first)
+                b_move = sim.get_move(sim.b_strategy, st.session_state.a_last_move, is_first)
+                a_gain, b_gain = sim.simulate_round(a_move, b_move)
+                st.session_state.history.append({
+                    'round': current_round + 1,
+                    'a_move': a_move,
+                    'b_move': b_move,
+                    'a_gain': a_gain,
+                    'b_gain': b_gain,
+                    'a_volume': sim.a_volume,
+                    'b_volume': sim.b_volume
+                })
+                st.session_state.a_last_move = a_move
+                st.session_state.b_last_move = b_move
+                st.session_state.current_round += 1
+
+                # Display current history
+                df = pd.DataFrame(st.session_state.history)
+                st.dataframe(df)
+
+                # Chart in interactive mode
+                chart_data = df.melt(id_vars=['round'], value_vars=['a_volume', 'b_volume'], var_name='Terminal', value_name='Volume')
+                chart = alt.Chart(chart_data).mark_line().encode(x='round', y='Volume', color='Terminal').interactive()
+                st.altair_chart(chart, use_container_width=True)
+
+                if st.session_state.current_round == sim.rounds:
+                    st.write(f"Final Volumes: Terminal A: {sim.a_volume} TEUs, Terminal B: {sim.b_volume} TEUs")
+                    # Store run
+                    st.session_state.runs.append({'A Strategy': a_strat, 'B Strategy': b_strat, 'Final A': sim.a_volume, 'Final B': sim.b_volume, 'Total Gain': sim.a_volume + sim.b_volume - initial_a - initial_b})
+
+        if st.button("Reset Interactive Mode"):
+            del st.session_state.sim
+            del st.session_state.current_round
+            del st.session_state.history
+            st.session_state.a_last_move = None
+            st.session_state.b_last_move = None
 
 with tab2:
-    st.markdown("### Post-Simulation Questions (Basic Level)")
+    st.markdown("### Post-Simulation Questions")
     st.text_area("1. Based on results, should Terminal A cooperate with B? Why?", help="Consider risks like collusion or price wars from the case.")
     st.text_area("2. How do different strategies affect volume changes?", help="Reference the gains from cooperation vs. defection.")
+
+with tab3:
+    if st.session_state.runs:
+        comp_df = pd.DataFrame(st.session_state.runs)
+        st.dataframe(comp_df)
+        
+        # Bar graph for comparison
+        chart_data = comp_df.melt(id_vars=['A Strategy', 'B Strategy'], value_vars=['Final A', 'Final B'], var_name='Terminal', value_name='Volume')
+        chart = alt.Chart(chart_data).mark_bar().encode(
+            x=alt.X('A Strategy:N', axis=alt.Axis(labelAngle=-45)),
+            y='Volume:Q',
+            color='Terminal:N',
+            column='B Strategy:N',
+            tooltip=['A Strategy', 'B Strategy', 'Terminal', 'Volume']
+        ).properties(width=200)
+        st.altair_chart(chart, use_container_width=True)
+        
+        csv = comp_df.to_csv()
+        st.download_button("Download Comparison", csv, "runs.csv")
+
+    if st.button("Reset Runs"):
+        st.session_state.runs = []
