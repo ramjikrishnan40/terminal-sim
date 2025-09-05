@@ -58,14 +58,14 @@ class TerminalSimulation:
             a_adjust += self.congestion_impact_per_round
         if not drop_coastal:
             a_adjust += self.coastal_impact_per_round
-        net_a_gain = raw_a_gain + a_adjust
-        net_b_gain = raw_b_gain + b_adjust
+        net_a_gain = int(raw_a_gain + a_adjust)  # Round to int
+        net_b_gain = int(raw_b_gain + b_adjust)  # Round to int
         old_a = self.a_volume
         self.a_volume += net_a_gain
         excess_a = max(0, self.a_volume - self.a_max_capacity)
         self.a_volume = min(max(self.a_volume, 0), self.a_max_capacity)
         if excess_a > 0 and a_move == 'Cooperate' and b_move == 'Cooperate':
-            self.b_volume += excess_a * 0.5  # Spillover to B
+            self.b_volume += int(excess_a * 0.5)  # Spillover to B, rounded
         self.b_volume += net_b_gain
         self.b_volume = min(max(self.b_volume, 0), self.b_max_capacity)
         return raw_a_gain, raw_b_gain, net_a_gain, net_b_gain
@@ -96,33 +96,38 @@ class TerminalSimulation:
 
 st.title("Terminal Competition Simulation (Iterated Prisoner's Dilemma)")
 
+level = st.selectbox("Complexity Level", ['Basic', 'Medium', 'Advanced', 'Master'], help="Choose complexity: Basic for core PD, Medium adds resolutions, Advanced adds scenarios, Master adds advanced models.")
+
 st.markdown("""
-This simulation models the competition between Terminal A (established, starting at 50,000 TEUs/month) and Terminal B (new entrant, starting at 20,000 TEUs/month) as an iterated Prisoner's Dilemma. Each 'round' represents a month where terminals choose to Cooperate (e.g., avoid poaching, share synergies) or Defect (e.g., poach customers aggressively). Payoffs reflect volume changes based on choices. Penalties apply for unresolved issues from the case study.
+This simulation models terminal competition as PD. Adjust level for depth.
 """)
 
 with st.expander("Strategy Explanations (Click to Expand)"):
     st.markdown("""
-    - **TitForTat - Cooperate**: Starts with cooperate, then mirrors opponent's last move.
-    - **TFT - Defect**: Starts with defect, then mirrors opponent's last move.
-    - **AlwaysCooperate**: Always chooses to cooperate.
-    - **AlwaysDefect**: Always chooses to defect.
-    - **Random**: Chooses cooperate or defect randomly each round.
+    - **TitForTat - Cooperate**: Starts by cooperating but mirrors the opponent's last move. Encourages mutual cooperation but retaliates against defection. (Case tie-in: Balanced approach for exploring limited synergies without being exploited.)
+    - **TFT - Defect**: Starts by defecting but mirrors the opponent's last move. Often leads to mutual destruction but can test aggression. (Case tie-in: Models potential initial poaching.)
+    - **AlwaysCooperate**: Always chooses to cooperate, regardless of the opponent. Risks exploitation but can stabilize if the other follows suit. (Case tie-in: Like board intervention forcing volume retention, potentially leading to mutual benefits or heavy losses.)
+    - **AlwaysDefect**: Always chooses to defect, aiming for short-term gains via poaching. Often leads to mutual destruction in iterated games. (Case tie-in: Models Terminal B's aggressive poaching strategy.)
+    - **Random**: Chooses cooperate or defect randomly each round. Introduces uncertainty, simulating unpredictable market behaviors.
     """)
 
-initial_a = st.number_input("Initial A Volume (TEUs)", value=50000, help="Starting monthly throughput for Terminal A (e.g., 50,000 TEUs as per case; adjust to test scenarios).")
-initial_b = st.number_input("Initial B Volume (TEUs)", value=20000, help="Starting monthly throughput for Terminal B (e.g., 20,000 TEUs; reflects new entrant's ramp-up).")
-rounds = st.slider("Rounds (Months)", 1, 20, 10, help="Number of simulation rounds (months); longer runs show long-term effects of strategies like price wars.")
-a_strat = st.selectbox("Terminal A Strategy", ['TitForTat - Cooperate', 'TFT - Defect', 'AlwaysCooperate', 'AlwaysDefect', 'Random'], help="Choose Priya's (Terminal A) approach—see expander above for details.")
-b_strat = st.selectbox("Terminal B Strategy", ['TitForTat - Cooperate', 'TFT - Defect', 'AlwaysCooperate', 'AlwaysDefect', 'Random'], help="Choose the rival's (Terminal B) approach—e.g., 'AlwaysDefect' for heavy poaching.")
+initial_a = st.number_input("Initial A Volume (TEUs)", value=50000, help="Starting monthly throughput for Terminal A (established terminal facing decline; default 50,000 TEUs from case; adjust to simulate scenarios like pre-poaching levels or higher capacity).")
+initial_b = st.number_input("Initial B Volume (TEUs)", value=20000, help="Starting monthly throughput for Terminal B (new entrant ramping up; default 20,000 TEUs from case; adjust to test aggressive growth or lower entry).")
+rounds = st.slider("Rounds (Months)", 1, 20, 10, help="Number of simulation rounds, each representing a month of competition; longer runs highlight long-term effects like sustained cooperation or destructive wars (default 10 for balanced testing).")
+a_strat = st.selectbox("Terminal A Strategy", ['TitForTat - Cooperate', 'TFT - Defect', 'AlwaysCooperate', 'AlwaysDefect', 'Random'], help="Select Terminal A's (Priya's) strategy; see expander for details on how each behaves in the PD framework and ties to case dilemmas like counter-poaching or board pressures.")
+b_strat = st.selectbox("Terminal B Strategy", ['TitForTat - Cooperate', 'TFT - Defect', 'AlwaysCooperate', 'AlwaysDefect', 'Random'], help="Select Terminal B's (rival's) strategy; e.g., 'AlwaysDefect' for heavy poaching as in the case; see expander for explanations and case ties like aggressive coastal targeting.")
 
-resolve_cong = st.checkbox("Resolve Export Congestion? (No Penalty)", value=False, help="Check to simulate Terminal A resolving export bottlenecks (e.g., via advanced TAS/VDTW system for peak 3 PM–2 AM truck flows). Avoids -300 TEU/round penalty; improves TTT from 60-90 min to 30-45 min, reduces yard congestion, and restores reliability—critical for countering poaching but requires stakeholder coordination and may face implementation challenges.")
-drop_coast = st.checkbox("Drop Coastal Contract? (No Penalty)", value=False, help="Check to simulate Terminal A shedding the legacy coastal contract (1 vessel/week, 2,000 TEUs/voyage at reduced tariff 2,200 INR/TEU vs. 3,600 foreign; 10-12 days free import storage, 4-5 export, unproductive moves at 15-20% eRTG capacity). Avoids -200 TEU/round penalty; frees yard space (20-25% occupancy relief), cuts maintenance strain, boosts profitability, but risks short-term volume loss (~2k TEUs), Port Authority backlash, and stakeholder dissatisfaction (consignees/shippers).")
+if level in ['Medium', 'Advanced', 'Master']:
+    resolve_cong = st.checkbox("Resolve Export Congestion? (No Penalty)", value=False, help="Check to simulate Terminal A resolving export bottlenecks (e.g., via advanced TAS/VDTW system for peak 3 PM–2 AM truck flows, uncoordinated CFS releases). Avoids -300 TEU/round penalty; improves TTT from 60-90 min to 30-45 min, reduces yard congestion, and restores reliability—critical for countering poaching but requires stakeholder coordination and may face implementation challenges.")
+    drop_coast = st.checkbox("Drop Coastal Contract? (No Penalty)", value=False, help="Check to simulate Terminal A shedding the legacy coastal contract (1 vessel/week, 2,000 TEUs/voyage at reduced tariff 2,200 INR/TEU vs. 3,600 foreign; 10-12 days free import storage, 4-5 export, unproductive moves at 15-20% eRTG capacity). Avoids -200 TEU/round penalty; frees yard space (20-25% occupancy relief), cuts maintenance strain, boosts profitability, but risks short-term volume loss (~2k TEUs), Port Authority backlash, and stakeholder dissatisfaction (consignees/shippers).")
 
-scenario = st.selectbox("Load Scenario (Optional)", ['None', 'Regulatory Clampdown', 'Board Intervention (Googly)', 'Aggressive Poaching'], help="Pre-set parameters based on case 'What Ifs' for quick testing; e.g., 'Regulatory Clampdown' adds noise for uncertainty in regulations; 'Board Intervention' forces A to AlwaysCooperate; 'Aggressive Poaching' sets B to AlwaysDefect.")
+scenario = 'None'
+if level in ['Advanced', 'Master']:
+    scenario = st.selectbox("Load Scenario (Optional)", ['None', 'Regulatory Clampdown', 'Board Intervention (Googly)', 'Aggressive Poaching'], help="Pre-set parameters based on case 'What Ifs' for quick testing; 'Regulatory Clampdown' adds noise for uncertainty in regulations (e.g., stricter coastal cargo rules increasing costs/flexibility limits—tests response to new risks like contract decisions); 'Board Intervention (Googly)' forces A to AlwaysCooperate (unexpected directive to retain all volume, including coastal, for market share/reputation—conflicts with operational realities, risks volume-at-any-cost strategy); 'Aggressive Poaching' sets B to AlwaysDefect (B aggressively targets volumes, including coastal, testing A's retaliation—highlights destructive wars if not countered).")
 
-allow_mid_change = st.checkbox("Allow Mid-Sim Strategy Change? (Interactive Only)", value=False, help="Check to enable updating strategies during interactive mode (after some rounds); models adaptive responses like Priya shifting tactics mid-competition, but may disrupt pure strategy analysis—use for 'what if' explorations of changing market conditions.")
+allow_mid_change = st.checkbox("Allow Mid-Sim Strategy Change? (Interactive Only)", value=False, help="Check to enable updating strategies during interactive mode (after some rounds); models adaptive responses like Priya shifting tactics mid-competition, but may disrupt pure strategy analysis—use for 'what if' explorations of changing market conditions.") if level in ['Medium', 'Advanced', 'Master'] else False
 
-mode = st.radio("Simulation Mode", ['Batch (All Rounds at Once)', 'Interactive (Step-by-Step)'], help="Batch: Runs all rounds automatically for quick overview and comparison. Interactive: Advance step-by-step for hands-on control, mid-sim adjustments if enabled, and detailed round-by-round analysis.")
+mode = st.radio("Simulation Mode", ['Batch (All Rounds at Once)', 'Interactive (Step-by-Step)'] if level != 'Basic' else ['Batch (All Rounds at Once)'], help="Batch: Runs all rounds automatically for quick overview and comparison. Interactive: Advance step-by-step for hands-on control, mid-sim adjustments if enabled, and detailed round-by-round analysis.")
 
 if 'runs' not in st.session_state:
     st.session_state.runs = []
@@ -135,7 +140,7 @@ with tab1:
         if st.button("Run Simulation"):
             sim = TerminalSimulation(initial_a_volume=initial_a, initial_b_volume=initial_b, rounds=rounds)
             sim.set_strategies(a_strat, b_strat)
-            history, final_a, final_b = sim.run_simulation(resolve_congestion=resolve_cong, drop_coastal=drop_coast, apply_noise=apply_noise)
+            history, final_a, final_b = sim.run_simulation(resolve_congestion=resolve_cong if level in ['Medium', 'Advanced', 'Master'] else False, drop_coastal=drop_coast if level in ['Medium', 'Advanced', 'Master'] else False, apply_noise=apply_noise)
             st.write(f"Final Volumes: Terminal A: {final_a} TEUs, Terminal B: {final_b} TEUs")
             
             # Display history table
@@ -161,8 +166,8 @@ with tab1:
             st.session_state.run_complete = False
 
         if allow_mid_change and not st.session_state.run_complete:
-            new_a_strat = st.selectbox("Update A Strategy (Mid-Sim)", ['TitForTat - Cooperate', 'TFT - Defect', 'AlwaysCooperate', 'AlwaysDefect', 'Random'], key="mid_a_strat")
-            new_b_strat = st.selectbox("Update B Strategy (Mid-Sim)", ['TitForTat - Cooperate', 'TFT - Defect', 'AlwaysCooperate', 'AlwaysDefect', 'Random'], key="mid_b_strat")
+            new_a_strat = st.selectbox("Update A Strategy (Mid-Sim)", ['TitForTat - Cooperate', 'TFT - Defect', 'AlwaysCooperate', 'AlwaysDefect', 'Random'], key="mid_a")
+            new_b_strat = st.selectbox("Update B Strategy (Mid-Sim)", ['TitForTat - Cooperate', 'TFT - Defect', 'AlwaysCooperate', 'AlwaysDefect', 'Random'], key="mid_b")
             if st.button("Apply Mid-Sim Changes"):
                 st.session_state.sim.set_strategies(new_a_strat, new_b_strat)
                 a_strat = new_a_strat
