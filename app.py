@@ -269,4 +269,3 @@ with tab3:
         st.session_state.runs = []
 
 st.markdown("Copyright - Capt. Ramji S Krishnan, Sloan Fellow, London Business School")
-
