@@ -46,14 +46,8 @@ class TerminalSimulation:
         else:
             raise ValueError("Unknown strategy")
 
-    def simulate_round(self, a_move, b_move, resolve_congestion=False, drop_coastal=False, apply_noise=False, berth_pooling=False, bertrand_mode=False):
+    def simulate_round(self, a_move, b_move, resolve_congestion=False, drop_coastal=False, apply_noise=False):
         raw_a_gain, raw_b_gain = self.payoffs.get((a_move, b_move), (0, 0))
-        if bertrand_mode:
-            raw_a_gain *= 0.5  # Decay to simulate price convergence to cost
-            raw_b_gain *= 0.5
-        if berth_pooling and a_move == 'Cooperate' and b_move == 'Cooperate':
-            raw_a_gain *= 1.1  # 10% increase due to pooling
-            raw_b_gain *= 1.1
         a_adjust = 0
         b_adjust = 0
         if apply_noise:
@@ -63,19 +57,19 @@ class TerminalSimulation:
             a_adjust += self.congestion_impact_per_round
         if not drop_coastal:
             a_adjust += self.coastal_impact_per_round
-        net_a_gain = int(raw_a_gain + a_adjust)  # Round to int
-        net_b_gain = int(raw_b_gain + b_adjust)  # Round to int
+        net_a_gain = int(raw_a_gain + a_adjust)  # Round to whole
+        net_b_gain = int(raw_b_gain + b_adjust)  # Round to whole
         old_a = self.a_volume
         self.a_volume += net_a_gain
         excess_a = max(0, self.a_volume - self.a_max_capacity)
         self.a_volume = min(max(self.a_volume, 0), self.a_max_capacity)
         if excess_a > 0 and a_move == 'Cooperate' and b_move == 'Cooperate':
-            self.b_volume += int(excess_a * 0.5)  # Spillover to B, rounded
+            self.b_volume += int(excess_a * 0.5)  # Spillover rounded
         self.b_volume += net_b_gain
         self.b_volume = min(max(self.b_volume, 0), self.b_max_capacity)
         return raw_a_gain, raw_b_gain, net_a_gain, net_b_gain
 
-    def run_simulation(self, resolve_congestion=False, drop_coastal=False, apply_noise=False, berth_pooling=False, bertrand_mode=False):
+    def run_simulation(self, resolve_congestion=False, drop_coastal=False, apply_noise=False):
         a_last_move = None
         b_last_move = None
         self.history = []
@@ -83,7 +77,7 @@ class TerminalSimulation:
             is_first = r == 0
             a_move = self.get_move(self.a_strategy, b_last_move, is_first)
             b_move = self.get_move(self.b_strategy, a_last_move, is_first)
-            raw_a_gain, raw_b_gain, net_a_gain, net_b_gain = self.simulate_round(a_move, b_move, resolve_congestion, drop_coastal, apply_noise, berth_pooling, bertrand_mode)
+            raw_a_gain, raw_b_gain, net_a_gain, net_b_gain = self.simulate_round(a_move, b_move, resolve_congestion, drop_coastal, apply_noise)
             self.history.append({
                 'round': r + 1,
                 'a_move': a_move,
@@ -125,18 +119,12 @@ drop_coast = st.checkbox("Drop Coastal Contract? (No Penalty)", value=False, hel
 
 scenario = st.selectbox("Load Scenario (Optional)", ['None', 'Regulatory Clampdown', 'Board Intervention (Googly)', 'Aggressive Poaching'], help="Pre-set parameters based on case 'What Ifs' for quick testing; 'Regulatory Clampdown' adds noise for uncertainty in regulations (e.g., stricter coastal cargo rules increasing costs/flexibility limits—tests response to new risks like contract decisions); 'Board Intervention (Googly)' forces A to AlwaysCooperate (unexpected directive to retain all volume, including coastal, for market share/reputation—conflicts with operational realities, risks volume-at-any-cost strategy); 'Aggressive Poaching' sets B to AlwaysDefect (B aggressively targets volumes, including coastal, testing A's retaliation—highlights destructive wars if not countered).")
 
-if scenario == 'Board Intervention (Googly)':
-    if a_strat not in ['AlwaysCooperate', 'TitForTat - Cooperate']:
-        st.warning("Board Intervention scenario locks Terminal A to AlwaysCooperate or TitForTat - Cooperate. Strategy adjusted.")
-        a_strat = 'AlwaysCooperate'
-elif scenario == 'Aggressive Poaching':
-    if b_strat != 'AlwaysDefect':
-        st.warning("Aggressive Poaching scenario locks Terminal B to AlwaysDefect. Strategy adjusted.")
-        b_strat = 'AlwaysDefect'
+bertrand_mode = st.checkbox("Enable Bertrand Pricing Mode?", value=False, help="Simulates price competition where gains decay toward marginal cost (e.g., undercutting leads to near-zero profits)—ties to case's tariff wars but clashes with PD's positive synergies if not compared carefully; use for advanced analysis of destructive pricing.") if level == 'Master' else False
+stackelberg_leader = st.selectbox("Stackelberg Leader", ['None', 'A', 'B'], help="Enables sequential play: Leader commits first, follower reacts—models commitment advantage (e.g., A as established leader dropping coastal); use for master-level exploration of asymmetric strategies.") if level == 'Master' else 'None'
 
-allow_mid_change = st.checkbox("Allow Mid-Sim Strategy Change? (Interactive Only)", value=False, help="Check to enable updating strategies during interactive mode (after some rounds); models adaptive responses like Priya shifting tactics mid-competition, but may disrupt pure strategy analysis—use for 'what if' explorations of changing market conditions.")
+allow_mid_change = st.checkbox("Allow Mid-Sim Strategy Change? (Interactive Only)", value=False, help="Check to enable updating strategies during interactive mode (after some rounds); models adaptive responses like Priya shifting tactics mid-competition, but may disrupt pure strategy analysis—use for 'what if' explorations of changing market conditions.") if level in ['Medium', 'Advanced', 'Master'] else False
 
-mode = st.radio("Simulation Mode", ['Batch (All Rounds at Once)', 'Interactive (Step-by-Step)'], help="Batch: Runs all rounds automatically for quick overview and comparison. Interactive: Advance step-by-step for hands-on control, mid-sim adjustments if enabled, and detailed round-by-round analysis.")
+mode = st.radio("Simulation Mode", ['Batch (All Rounds at Once)', 'Interactive (Step-by-Step)'] if level != 'Basic' else ['Batch (All Rounds at Once)'], help="Batch: Runs all rounds automatically for quick overview and comparison. Interactive: Advance step-by-step for hands-on control, mid-sim adjustments if enabled, and detailed round-by-round analysis.")
 
 if 'runs' not in st.session_state:
     st.session_state.runs = []
@@ -149,13 +137,19 @@ with tab1:
         if st.button("Run Simulation"):
             sim = TerminalSimulation(initial_a_volume=initial_a, initial_b_volume=initial_b, rounds=rounds)
             sim.set_strategies(a_strat, b_strat)
-            history, final_a, final_b = sim.run_simulation(resolve_congestion=resolve_cong, drop_coastal=drop_coast, apply_noise=apply_noise)
+            history, final_a, final_b = sim.run_simulation(resolve_congestion=resolve_cong, drop_coastal=drop_coast, apply_noise=apply_noise, berth_pooling=berth_pooling, bertrand_mode=bertrand_mode)
             st.write(f"Final Volumes: Terminal A: {final_a} TEUs, Terminal B: {final_b} TEUs")
             
             # Display history table without index
             df = pd.DataFrame(history)
-            st.dataframe(df.style.hide(axis="index"))
-
+            st.dataframe(df.style.hide(axis="index"), column_config={
+                'raw_a_gain': st.column_config.NumberColumn(help="Raw gain for A before adjustments/penalties/noise/spillover—base from move (e.g., +2500 for cooperate)."),
+                'raw_b_gain': st.column_config.NumberColumn(help="Raw gain for B before adjustments—base from move (e.g., +1000 for cooperate)."),
+                'net_a_gain': st.column_config.NumberColumn(help="Net gain for A after penalties/noise (e.g., raw + adjustments); shows impact of resolutions—changes per row if noise/penalties apply."),
+                'net_b_gain': st.column_config.NumberColumn(help="Net gain for B after adjustments; changes per row if noise applies."),
+                'total_gain': st.column_config.NumberColumn(help="Combined net gain for A and B this round; highlights mutual benefits or losses—changes per row based on strategies/penalties.")
+            })
+            
             # Chart volumes over rounds
             chart_data = df.melt(id_vars=['round'], value_vars=['a_volume', 'b_volume'], var_name='Terminal', value_name='Volume')
             chart = alt.Chart(chart_data).mark_line().encode(x='round', y='Volume', color='Terminal').interactive()
@@ -207,7 +201,13 @@ with tab1:
 
                 # Display current history without index
                 df = pd.DataFrame(st.session_state.history)
-                st.dataframe(df.style.hide(axis="index"))
+                st.dataframe(df.style.hide(axis="index"), column_config={
+                    'raw_a_gain': st.column_config.NumberColumn(help="Raw gain for A before adjustments/penalties/noise/spillover—base from move (e.g., +2500 for cooperate)."),
+                    'raw_b_gain': st.column_config.NumberColumn(help="Raw gain for B before adjustments—base from move (e.g., +1000 for cooperate)."),
+                    'net_a_gain': st.column_config.NumberColumn(help="Net gain for A after penalties/noise (e.g., raw + adjustments); shows impact of resolutions—changes per row if noise/penalties apply."),
+                    'net_b_gain': st.column_config.NumberColumn(help="Net gain for B after adjustments; changes per row if noise applies."),
+                    'total_gain': st.column_config.NumberColumn(help="Combined net gain for A and B this round; highlights mutual benefits or losses—changes per row based on strategies/penalties.")
+                })
 
                 # Chart
                 chart_data = df.melt(id_vars=['round'], value_vars=['a_volume', 'b_volume'], var_name='Terminal', value_name='Volume')
@@ -234,15 +234,16 @@ with tab3:
         comp_df = pd.DataFrame(st.session_state.runs)
         st.dataframe(comp_df.style.hide(axis="index"))
         
-        # Bar graph for comparison - side-by-side A/B per run
-        comp_df['Run Label'] = comp_df.index.to_series().apply(lambda x: f"Run {x+1}: {comp_df.at[x, 'A Strategy']} vs {comp_df.at[x, 'B Strategy']}")
-        chart_data = comp_df.melt(id_vars=['Run Label'], value_vars=['Final A', 'Final B'], var_name='Terminal', value_name='Volume')
+        # Bar graph for comparison - side-by-side A/B/combined, like attached
+        comp_df['Combined Gain'] = comp_df['Total Gain A'] + comp_df['Total Gain B']
+        chart_data = comp_df.melt(id_vars=['A Strategy', 'B Strategy'], value_vars=['Total Gain A', 'Total Gain B', 'Combined Gain'], var_name='Payoff Type', value_name='Cumulative Payoff')
         chart = alt.Chart(chart_data).mark_bar().encode(
-            x='Run Label:N',
-            y='Volume:Q',
-            color='Terminal:N',
-            tooltip=['Run Label', 'Terminal', 'Volume']
-        ).properties(width=600)
+            x=alt.X('A Strategy:N', axis=alt.Axis(labelAngle=-45)),
+            y='Cumulative Payoff:Q',
+            color='Payoff Type:N',
+            column='B Strategy:N',
+            tooltip=['A Strategy', 'B Strategy', 'Payoff Type', 'Cumulative Payoff']
+        ).properties(width=200, title='Cumulative Payoffs After ' + str(rounds) + ' Rounds')
         st.altair_chart(chart, use_container_width=True)
         
         csv = comp_df.to_csv()
