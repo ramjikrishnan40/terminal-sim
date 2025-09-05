@@ -99,7 +99,7 @@ class TerminalSimulation:
             b_last_move = b_move
         return self.history, self.a_volume, self.b_volume
 
-st.title("Terminal Competition Simulation (Iterated Prisoner's Dilemma)")
+st.title("Terminal Coopetition Simulation (Iterated Prisoner's Dilemma)")
 
 level = st.selectbox("Complexity Level", ['Basic', 'Medium', 'Advanced', 'Master'], help="Basic: Core PD. Medium: Resolutions. Advanced: Scenarios. Master: Advanced models like Bertrand/Stackelberg.")
 
@@ -269,3 +269,4 @@ with tab3:
         st.session_state.runs = []
 
 st.markdown("Copyright - Capt. Ramji S Krishnan, Sloan Fellow, London Business School")
+
